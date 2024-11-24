@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyAnnote & Whisper Integration - Index 2</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css">
+    <script src="https://unpkg.com/wavesurfer.js"></script>
+</head>
+<body>
+    <section class="section">
+        <div class="container">
+            <h1 class="title">Audio-Transkription und Sprecherzuordnung</h1>
+            <div class="box">
+                <form id="upload-form-2">
+                    <div class="field">
+                        <label class="label">Audiodatei hochladen (MP3 oder WAV)</label>
+                        <div class="control">
+                            <input class="input" type="file" id="audio-file-2" name="audio">
+                        </div>
+                    </div>
+                    <button class="button is-link" type="submit">Datei hochladen</button>
+                </form>
+                <div id="upload-result-2" class="notification is-hidden mt-4"></div>
+            </div>
+
+            <!-- Audio Player Box -->
+            <div class="box" id="audio-player-box" style="display: none;">
+                <h2 class="subtitle">Hochgeladene Audiodatei anhören</h2>
+                <div id="waveform"></div>
+                <button class="button is-primary mt-2" id="play-pause-button">Play/Pause</button>
+            </div>
+
+            <div class="box">
+                <h2 class="subtitle">Analyse</h2>
+                <button id="analyze-button-2" class="button is-primary" disabled>Starte Analyse</button>
+                <div id="analyze-result-2" class="mt-4"></div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        let wavesurfer;
+
+        document.getElementById("upload-form-2").addEventListener("submit", async function(event) {
+            event.preventDefault();
+            const fileInput = document.getElementById("audio-file-2");
+            if (!fileInput.files.length) {
+                alert("Bitte eine Datei auswählen.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("audio", fileInput.files[0]);
+
+            const uploadResult = document.getElementById("upload-result-2");
+            try {
+                const response = await fetch("/upload", {
+                    method: "POST",
+                    body: formData
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    uploadResult.classList.remove("is-hidden", "is-danger");
+                    uploadResult.classList.add("is-info");
+                    uploadResult.textContent = "Datei erfolgreich hochgeladen.";
+                    document.getElementById("analyze-button-2").disabled = false;
+                    window.wavFilePath = result.wav_filepath;
+
+                    // Display audio player
+                    document.getElementById("audio-player-box").style.display = "block";
+                    if (wavesurfer) {
+                        wavesurfer.destroy();
+                    }
+                    wavesurfer = WaveSurfer.create({
+                        container: "#waveform",
+                        waveColor: "#ddd",
+                        progressColor: "#007bff"
+                    });
+                    wavesurfer.load(window.wavFilePath);
+                } else {
+                    uploadResult.classList.remove("is-hidden", "is-info");
+                    uploadResult.classList.add("is-danger");
+                    uploadResult.textContent = result.error;
+                }
+            } catch (error) {
+                uploadResult.classList.remove("is-hidden", "is-info");
+                uploadResult.classList.add("is-danger");
+                uploadResult.textContent = "Fehler beim Hochladen der Datei.";
+            }
+        });
+
+        document.getElementById("analyze-button-2").addEventListener("click", async function() {
+            if (!window.wavFilePath) {
+                alert("Bitte zuerst eine Datei hochladen.");
+                return;
+            }
+
+            try {
+                const response = await fetch("/analyze", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ wav_filepath: window.wavFilePath })
+                });
+                const result = await response.json();
+                const analyzeResult = document.getElementById("analyze-result-2");
+                analyzeResult.innerHTML = "";
+
+                if (response.ok) {
+                    // Create a table to display the results more compactly
+                    const table = document.createElement("table");
+                    table.classList.add("table", "is-fullwidth", "is-striped", "mt-4");
+                    const tbody = document.createElement("tbody");
+                    table.appendChild(tbody);
+
+                    result.segments.forEach((segment, index) => {
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                            <td><strong>Sprecher ${index + 1}:</strong> <input type="text" value="${segment.speaker}" class="input is-small speaker-name"></td>
+                            <td><strong>Start:</strong> ${segment.start.toFixed(2)}s</td>
+                            <td><strong>Ende:</strong> ${segment.end.toFixed(2)}s</td>
+                            <td><strong>Transkript:</strong> ${segment.transcript}</td>
+                            <td><button class="button is-small is-link play-segment" data-start="${segment.start}" data-end="${segment.end}">Anhören</button></td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                    analyzeResult.appendChild(table);
+                } else {
+                    analyzeResult.innerHTML = `<div class="notification is-danger">${result.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById("analyze-result-2").innerHTML = `<div class="notification is-danger">Fehler bei der Analyse.</div>`;
+            }
+        });
+
+        document.getElementById("play-pause-button").addEventListener("click", function() {
+            if (wavesurfer) {
+                wavesurfer.playPause();
+            }
+        });
+
+        document.addEventListener("click", function(event) {
+            if (event.target.classList.contains("play-segment")) {
+                const start = parseFloat(event.target.getAttribute("data-start"));
+                const end = parseFloat(event.target.getAttribute("data-end"));
+
+                if (wavesurfer) {
+                    wavesurfer.play(start, end);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
